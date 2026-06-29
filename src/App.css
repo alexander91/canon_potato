@@ -1,0 +1,374 @@
+.screen {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(120% 90% at 50% 0%, #20305a 0%, #131b30 55%, #0b1020 100%);
+  color: #eef2ff;
+}
+
+/* ---------- generic panel (loading / auth / overlays) ---------- */
+.panel {
+  background: rgba(18, 26, 48, 0.92);
+  border: 1px solid rgba(120, 150, 220, 0.25);
+  border-radius: 18px;
+  padding: 28px 32px;
+  max-width: 460px;
+  text-align: center;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+}
+
+.panel h1 {
+  margin: 0 0 12px;
+  font-size: 30px;
+  letter-spacing: 0.5px;
+}
+
+.panel p {
+  margin: 8px 0;
+  color: #c4cfe8;
+  line-height: 1.5;
+}
+
+.error-message {
+  color: #ff9d9d;
+}
+
+.help {
+  text-align: left;
+  margin: 16px auto;
+  padding-left: 18px;
+  color: #c4cfe8;
+  line-height: 1.8;
+  display: inline-block;
+}
+
+/* ---------- buttons ---------- */
+.btn {
+  cursor: pointer;
+  border: none;
+  border-radius: 12px;
+  padding: 12px 22px;
+  font-size: 16px;
+  font-weight: 600;
+  transition: transform 0.08s ease, filter 0.15s ease;
+}
+
+.btn:active {
+  transform: scale(0.96);
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #ffb24a, #ff7a2f);
+  color: #2a1604;
+}
+
+.btn-secondary {
+  background: rgba(255, 255, 255, 0.12);
+  color: #eef2ff;
+}
+
+.btn-primary:hover,
+.btn-secondary:hover {
+  filter: brightness(1.08);
+}
+
+.game-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 18px;
+  flex-wrap: wrap;
+}
+
+/* ---------- game screen ---------- */
+.game-screen {
+  flex-direction: column;
+  padding: 0;
+}
+
+.hud {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 12px 18px;
+}
+
+.hud-item {
+  display: flex;
+  flex-direction: column;
+  line-height: 1;
+  background: rgba(10, 16, 32, 0.55);
+  border: 1px solid rgba(120, 150, 220, 0.25);
+  border-radius: 12px;
+  padding: 8px 16px;
+  min-width: 78px;
+}
+
+.hud-label {
+  font-size: 11px;
+  letter-spacing: 1.5px;
+  color: #8ea1cc;
+}
+
+.hud-value {
+  font-size: 28px;
+  font-weight: 800;
+  margin-top: 3px;
+}
+
+.timer.timer-low .hud-value {
+  color: #ff6b6b;
+  animation: pulse 0.6s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.18); }
+}
+
+.dev-badge {
+  align-self: center;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  color: #ffd24a;
+  border: 1px solid rgba(255, 210, 74, 0.5);
+  border-radius: 8px;
+  padding: 4px 8px;
+}
+
+.btn-exit {
+  margin-left: auto;
+  background: rgba(255, 255, 255, 0.1);
+  color: #eef2ff;
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 16px;
+  line-height: 1;
+}
+
+/* ---------- playfield ---------- */
+.playfield-wrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.playfield {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+}
+
+.oval {
+  fill: rgba(86, 122, 220, 0.18);
+  stroke: #7da0ff;
+  stroke-width: 3;
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.35));
+}
+
+.oval-text {
+  fill: #eaf0ff;
+  font-weight: 700;
+  paint-order: stroke;
+}
+
+.hit-flash {
+  fill: #ffd24a;
+}
+
+.aim-line {
+  stroke: rgba(255, 210, 120, 0.35);
+  stroke-width: 2;
+  stroke-dasharray: 8 10;
+}
+
+/* ---------- pistol (top-down) ---------- */
+.pistol-slide {
+  fill: #444c61;
+  stroke: #232a3d;
+  stroke-width: 3;
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.45));
+}
+
+.pistol-grip {
+  fill: #2b3142;
+  stroke: #1b2030;
+  stroke-width: 3;
+}
+
+.pistol-guard {
+  fill: none;
+  stroke: #2c3346;
+  stroke-width: 6;
+}
+
+.pistol-port {
+  fill: #11151f;
+}
+
+.pistol-bore {
+  fill: #0c0f17;
+  stroke: #5d6a8c;
+  stroke-width: 2;
+}
+
+.pistol-detail {
+  fill: #5d6a8c;
+}
+
+.pistol-line {
+  stroke: #1b2030;
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+.pistol-serration {
+  stroke: #2c3346;
+  stroke-width: 2;
+}
+
+.pistol-chamber {
+  fill: #ffd24a;
+}
+
+/* Loaded: gun ready, faint warm highlight + chambered round. */
+.pistol.loaded .pistol-slide {
+  stroke: #6c7796;
+}
+
+/* Reloading: gun emptied — desaturated, dimmed, no chamber round. */
+.pistol.reloading {
+  opacity: 0.5;
+  filter: saturate(0.4);
+  transition: opacity 0.15s ease;
+}
+
+.pistol.reloading .pistol-slide {
+  fill: #383e4c;
+}
+
+.pistol.reloading .pistol-grip {
+  fill: #262a36;
+}
+
+/* Reload progress ring around the grip. */
+.reload-track {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.12);
+  stroke-width: 6;
+}
+
+.reload-progress {
+  fill: none;
+  stroke: #ffd24a;
+  stroke-width: 6;
+  stroke-linecap: round;
+}
+
+.reload-label {
+  position: absolute;
+  left: 50%;
+  bottom: 6%;
+  transform: translateX(-50%);
+  z-index: 4;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: #ffd24a;
+  text-transform: uppercase;
+  animation: blink 0.6s steps(2, start) infinite;
+}
+
+.potato {
+  fill: #c08a3e;
+  stroke: #7c5520;
+  stroke-width: 3;
+  filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.4));
+}
+
+.potato-eye {
+  fill: #3a2613;
+}
+
+/* ---------- target word (bottom-right) ---------- */
+.target-word {
+  position: absolute;
+  right: 22px;
+  bottom: 22px;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  background: rgba(10, 16, 32, 0.6);
+  border: 1px solid rgba(255, 180, 90, 0.4);
+  border-radius: 14px;
+  padding: 12px 20px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+}
+
+.target-label {
+  font-size: 12px;
+  letter-spacing: 2px;
+  color: #ffb24a;
+  text-transform: uppercase;
+}
+
+.target-en {
+  font-size: 38px;
+  font-weight: 800;
+  line-height: 1.05;
+}
+
+.target-pos {
+  font-size: 13px;
+  color: #8ea1cc;
+  font-style: italic;
+}
+
+/* ---------- overlays ---------- */
+.overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.start-overlay,
+.over-overlay {
+  background: rgba(8, 12, 24, 0.75);
+  backdrop-filter: blur(3px);
+}
+
+.final-score {
+  font-size: 22px;
+}
+
+.final-score b {
+  font-size: 30px;
+  color: #ffb24a;
+}
+
+@keyframes blink {
+  0% { opacity: 1; }
+  100% { opacity: 0.35; }
+}
+
+/* Short / portrait screens: rotate hint could go here; layout already scales. */
+@media (max-width: 640px) {
+  .target-en { font-size: 28px; }
+  .hud-value { font-size: 22px; }
+}
