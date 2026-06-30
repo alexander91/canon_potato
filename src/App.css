@@ -372,3 +372,16 @@
   .target-en { font-size: 28px; }
   .hud-value { font-size: 22px; }
 }
+
+/* Vertical (portrait) layout: English word sits on top, clear of the HUD. */
+@media (orientation: portrait) {
+  .target-word {
+    top: 88px;
+    bottom: auto;
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    align-items: center;
+    text-align: center;
+  }
+}

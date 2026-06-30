@@ -119,11 +119,11 @@ function pointInOval(px: number, py: number, o: Oval): boolean {
 }
 
 /** Gun-tip position for the current angle. */
-function barrelTip(angleDeg: number): { x: number; y: number } {
+function barrelTip(angleDeg: number, pivotY = PIVOT_Y): { x: number; y: number } {
   const r = (angleDeg * Math.PI) / 180
   return {
     x: PIVOT_X + BARREL_LEN * Math.sin(r),
-    y: PIVOT_Y - BARREL_LEN * Math.cos(r),
+    y: pivotY - BARREL_LEN * Math.cos(r),
   }
 }
 
@@ -134,6 +134,35 @@ export default function PotatoGame({ cards, onGameOver, onExit, devMode }: Potat
   const svgRef = useRef<SVGSVGElement | null>(null)
   const keys = useRef({ left: false, right: false })
   const fireReq = useRef(false)
+  const skipNextTouchUp = useRef(false)
+
+  // Portrait letterboxes the 1000x600 playfield, centering it vertically and
+  // leaving empty bands top/bottom. Keep the ovals where they are (xMidYMid) but
+  // nudge the gun down into the lower band — by HALF the gap between the centered
+  // and bottom-anchored positions — so it sits lower without dragging the ovals.
+  const [gunDy, setGunDy] = useState(0)
+  const pivotYRef = useRef(PIVOT_Y)
+  useEffect(() => {
+    function measure() {
+      const svg = svgRef.current
+      const portrait = window.matchMedia('(orientation: portrait)').matches
+      if (!svg || !portrait) { pivotYRef.current = PIVOT_Y; setGunDy(0); return }
+      const rect = svg.getBoundingClientRect()
+      const scale = rect.width / VIEW_W            // meet → fit width in portrait
+      const freeSpace = rect.height - VIEW_H * scale // empty band, screen px
+      // Half the center→bottom shift, converted from screen px to viewBox units.
+      const dy = (freeSpace / 4) / scale
+      pivotYRef.current = PIVOT_Y + dy
+      setGunDy(dy)
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    window.addEventListener('orientationchange', measure)
+    return () => {
+      window.removeEventListener('resize', measure)
+      window.removeEventListener('orientationchange', measure)
+    }
+  }, [])
   const rafRef = useRef<number | null>(null)
   const lastTs = useRef<number | null>(null)
   const reportedOver = useRef(false)
@@ -169,7 +198,7 @@ export default function PotatoGame({ cards, onGameOver, onExit, devMode }: Potat
     const m = model.current
     // One potato chambered at a time: must be loaded and have no shot in flight.
     if (m.phase !== 'playing' || m.projectile || !m.loaded) return
-    const tip = barrelTip(m.angleDeg)
+    const tip = barrelTip(m.angleDeg, pivotYRef.current)
     const r = (m.angleDeg * Math.PI) / 180
     m.projectile = {
       x: tip.x,
@@ -318,10 +347,17 @@ export default function PotatoGame({ cards, onGameOver, onExit, devMode }: Potat
   function aimAt(clientX: number, clientY: number) {
     const m = model.current
     if (m.phase !== 'playing' || !svgRef.current) return
-    const rect = svgRef.current.getBoundingClientRect()
-    const x = ((clientX - rect.left) / rect.width) * VIEW_W
-    const y = ((clientY - rect.top) / rect.height) * VIEW_H
-    let ang = (Math.atan2(x - PIVOT_X, -(y - PIVOT_Y)) * 180) / Math.PI
+    // Map the screen point into viewBox coordinates exactly — getBoundingClientRect
+    // ignores letterboxing from preserveAspectRatio="meet", which skewed the aim.
+    const ctm = svgRef.current.getScreenCTM()
+    if (!ctm) return
+    const pt = svgRef.current.createSVGPoint()
+    pt.x = clientX
+    pt.y = clientY
+    const loc = pt.matrixTransform(ctm.inverse())
+    const x = loc.x
+    const y = loc.y
+    let ang = (Math.atan2(x - PIVOT_X, -(y - pivotYRef.current)) * 180) / Math.PI
     if (ang < -MAX_ANGLE) ang = -MAX_ANGLE
     if (ang > MAX_ANGLE) ang = MAX_ANGLE
     m.angleDeg = ang
@@ -334,7 +370,22 @@ export default function PotatoGame({ cards, onGameOver, onExit, devMode }: Potat
 
   function onPointerDown(e: React.PointerEvent<SVGSVGElement>) {
     const m = model.current
-    if (m.phase === 'ready') { startPlaying(); return }
+    if (m.phase === 'ready') {
+      startPlaying()
+      // The release of this same gesture must not fire a shot.
+      if (e.pointerType === 'touch') skipNextTouchUp.current = true
+      return
+    }
+    aimAt(e.clientX, e.clientY)
+    // Touch: aim on press/drag, fire on release. Mouse: click fires immediately.
+    if (e.pointerType !== 'touch') fireReq.current = true
+  }
+
+  function onPointerUp(e: React.PointerEvent<SVGSVGElement>) {
+    if (e.pointerType !== 'touch') return
+    const m = model.current
+    if (m.phase !== 'playing') return
+    if (skipNextTouchUp.current) { skipNextTouchUp.current = false; return }
     aimAt(e.clientX, e.clientY)
     fireReq.current = true
   }
@@ -367,6 +418,7 @@ export default function PotatoGame({ cards, onGameOver, onExit, devMode }: Potat
           preserveAspectRatio="xMidYMid meet"
           onPointerMove={onPointerMove}
           onPointerDown={onPointerDown}
+          onPointerUp={onPointerUp}
         >
           {/* Ovals (target words in study language) */}
           {m.ovals.map((o, i) => {
@@ -406,7 +458,7 @@ export default function PotatoGame({ cards, onGameOver, onExit, devMode }: Potat
             />
           )}
 
-          {/* Aim guide */}
+          {/* Aim guide (shifted with the gun in portrait) */}
           {m.phase === 'playing' && (
             <line
               x1={PIVOT_X}
@@ -414,6 +466,7 @@ export default function PotatoGame({ cards, onGameOver, onExit, devMode }: Potat
               x2={PIVOT_X + (BARREL_LEN + 600) * Math.sin((m.angleDeg * Math.PI) / 180)}
               y2={PIVOT_Y - (BARREL_LEN + 600) * Math.cos((m.angleDeg * Math.PI) / 180)}
               className="aim-line"
+              transform={`translate(0 ${gunDy})`}
             />
           )}
 
@@ -428,7 +481,7 @@ export default function PotatoGame({ cards, onGameOver, onExit, devMode }: Potat
 
           {/* Pistol — top-down view, rotates as a single piece around the grip */}
           <g
-            transform={`rotate(${m.angleDeg} ${PIVOT_X} ${PIVOT_Y})`}
+            transform={`translate(0 ${gunDy}) rotate(${m.angleDeg} ${PIVOT_X} ${PIVOT_Y})`}
             className={`pistol${m.loaded ? ' loaded' : ' reloading'}`}
           >
             {/* grip (behind everything) */}
@@ -460,7 +513,7 @@ export default function PotatoGame({ cards, onGameOver, onExit, devMode }: Potat
             const C = 2 * Math.PI * R
             const prog = Math.min(1, 1 - m.reloadLeft / RELOAD_TIME)
             return (
-              <g>
+              <g transform={`translate(0 ${gunDy})`}>
                 <circle cx={PIVOT_X} cy={PIVOT_Y} r={R} className="reload-track" />
                 <circle
                   cx={PIVOT_X}
