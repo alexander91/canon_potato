@@ -134,7 +134,7 @@ export default function PotatoGame({ cards, onGameOver, onExit, devMode }: Potat
   const svgRef = useRef<SVGSVGElement | null>(null)
   const keys = useRef({ left: false, right: false })
   const fireReq = useRef(false)
-  const skipNextTouchUp = useRef(false)
+  const skipNextUp = useRef(false)
 
   // Portrait letterboxes the 1000x600 playfield, centering it vertically and
   // leaving empty bands top/bottom. Keep the ovals where they are (xMidYMid) but
@@ -363,7 +363,9 @@ export default function PotatoGame({ cards, onGameOver, onExit, devMode }: Potat
     m.angleDeg = ang
   }
 
-  // Mouse follows the cursor in real time; click fires.
+  // Pointer (mouse or finger) follows the cursor in real time; the shot fires on
+  // release, so dragging to aim never fires until you lift. This works for every
+  // pointerType, so it doesn't rely on the device reporting 'touch' correctly.
   function onPointerMove(e: React.PointerEvent<SVGSVGElement>) {
     aimAt(e.clientX, e.clientY)
   }
@@ -373,21 +375,22 @@ export default function PotatoGame({ cards, onGameOver, onExit, devMode }: Potat
     if (m.phase === 'ready') {
       startPlaying()
       // The release of this same gesture must not fire a shot.
-      if (e.pointerType === 'touch') skipNextTouchUp.current = true
-      return
+      skipNextUp.current = true
+    } else {
+      aimAt(e.clientX, e.clientY)
     }
-    aimAt(e.clientX, e.clientY)
-    // Touch: aim on press/drag, fire on release. Mouse: click fires immediately.
-    if (e.pointerType !== 'touch') fireReq.current = true
+    // Capture so the matching pointerup is always delivered here, even if the
+    // finger/cursor drifts off the SVG before release.
+    try { e.currentTarget.setPointerCapture(e.pointerId) } catch { /* ignore */ }
   }
 
   function onPointerUp(e: React.PointerEvent<SVGSVGElement>) {
-    if (e.pointerType !== 'touch') return
+    try { e.currentTarget.releasePointerCapture(e.pointerId) } catch { /* ignore */ }
+    if (skipNextUp.current) { skipNextUp.current = false; return }
     const m = model.current
     if (m.phase !== 'playing') return
-    if (skipNextTouchUp.current) { skipNextTouchUp.current = false; return }
     aimAt(e.clientX, e.clientY)
-    fireReq.current = true
+    fireReq.current = true // fire on release
   }
 
   const m = model.current
