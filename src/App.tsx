@@ -29,7 +29,14 @@ function toOptionalNumber(value: unknown): number | undefined {
   return undefined
 }
 
-function rowToCard(row: Record<string, unknown>): Card {
+/** Resolve a TTS file reference to an absolute URL (API may return a relative path). */
+function resolveTtsUrl(ttsFile: unknown, apiBase: string): string | undefined {
+  if (typeof ttsFile !== 'string' || !ttsFile) return undefined
+  if (/^https?:\/\//i.test(ttsFile)) return ttsFile
+  return `${apiBase.replace(/\/$/, '')}/${ttsFile.replace(/^\//, '')}`
+}
+
+function rowToCard(row: Record<string, unknown>, apiBase: string): Card {
   const wordId = toOptionalNumber(row['word_id'])
   const partOfSpeech = typeof row['part_of_speech'] === 'string' && row['part_of_speech']
     ? (row['part_of_speech'] as string)
@@ -47,7 +54,7 @@ function rowToCard(row: Record<string, unknown>): Card {
       englishWord: { id: crypto.randomUUID(), value: nfc(row['source_word'] as string), language: row['source_lang'] as Card['languagePair'][0] },
       foreignWord: { id: crypto.randomUUID(), value: nfc(row['target_word'] as string), language: row['target_lang'] as Card['languagePair'][0] },
       transliteration: (row['transliteration'] as string | null) ? nfc(row['transliteration'] as string) : undefined,
-      ttsFile: (row['ttsfile'] as string) || undefined,
+      ttsFile: resolveTtsUrl(row['ttsfile'], apiBase),
     },
     imageUrlSmall: row['img_url_small'] as string,
     imageUrlLarge: row['img_url_large'] as string,
@@ -146,7 +153,7 @@ function App() {
         return
       }
       const rawCards = await cardsRes.json()
-      const all: Card[] = Array.isArray(rawCards) ? rawCards.map(rowToCard) : []
+      const all: Card[] = Array.isArray(rawCards) ? rawCards.map(row => rowToCard(row, init.apiBase)) : []
       const resolvedIds = init.cards?.length ? new Set(init.cards.map(c => c.cardId)) : null
       const eligible = resolvedIds ? all.filter(c => resolvedIds.has(c.id)) : all
 

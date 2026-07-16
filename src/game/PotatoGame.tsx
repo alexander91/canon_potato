@@ -39,6 +39,8 @@ const MAX_OVALS = 5
 
 type Phase = 'ready' | 'playing' | 'over'
 
+const MUTE_STORAGE_KEY = 'canonPotatoMuted'
+
 interface Oval {
   cardId: string
   word: string
@@ -167,6 +169,43 @@ export default function PotatoGame({ cards, onGameOver, onExit, devMode }: Potat
   const lastTs = useRef<number | null>(null)
   const reportedOver = useRef(false)
 
+  // Word pronunciation (TTS) on correct hit. Cards without ttsFile stay silent.
+  const [muted, setMuted] = useState(() => localStorage.getItem(MUTE_STORAGE_KEY) === '1')
+  const mutedRef = useRef(muted)
+  const ttsAudio = useRef<Map<string, HTMLAudioElement>>(new Map())
+  useEffect(() => {
+    const map = new Map<string, HTMLAudioElement>()
+    for (const c of cards) {
+      const url = c.translation.ttsFile ?? c.ttsFile
+      if (!url) continue
+      const a = new Audio(url)
+      a.preload = 'auto'
+      map.set(c.id, a)
+    }
+    ttsAudio.current = map
+    return () => {
+      map.forEach(a => { a.pause(); a.src = '' })
+      map.clear()
+    }
+  }, [cards])
+
+  function toggleMute() {
+    setMuted(prev => {
+      const next = !prev
+      mutedRef.current = next
+      localStorage.setItem(MUTE_STORAGE_KEY, next ? '1' : '0')
+      return next
+    })
+  }
+
+  function playWordSound(cardId: string) {
+    if (mutedRef.current) return
+    const a = ttsAudio.current.get(cardId)
+    if (!a) return // no TTS for this card: stay silent
+    a.currentTime = 0
+    a.play().catch(() => { /* blocked or failed to load: stay silent */ })
+  }
+
   const model = useRef<GameModel>({
     phase: 'ready',
     angleDeg: 0,
@@ -272,6 +311,7 @@ export default function PotatoGame({ cards, onGameOver, onExit, devMode }: Potat
                 m.score += 1
                 m.scoreMap[o.cardId] = (m.scoreMap[o.cardId] || 0) + 1
                 m.flash = { x: o.x, y: o.y, t: 0.4 }
+                playWordSound(o.cardId)
                 newRound() // advance; reload (if any) continues into the new word
               } else {
                 m.projectile = null // wrong oval: shot wasted, keep playing
@@ -410,6 +450,13 @@ export default function PotatoGame({ cards, onGameOver, onExit, devMode }: Potat
           <span className="hud-value">{secs}</span>
         </div>
         {devMode && <span className="dev-badge">DEV</span>}
+        <button
+          className="btn btn-exit"
+          onClick={toggleMute}
+          aria-label={muted ? 'Unmute word sounds' : 'Mute word sounds'}
+        >
+          {muted ? '🔇' : '🔊'}
+        </button>
         <button className="btn btn-exit" onClick={onExit}>✕</button>
       </div>
 
