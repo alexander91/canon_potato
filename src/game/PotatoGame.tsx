@@ -172,20 +172,19 @@ export default function PotatoGame({ cards, onGameOver, onExit, devMode }: Potat
   // Word pronunciation (TTS) on correct hit. Cards without ttsFile stay silent.
   const [muted, setMuted] = useState(() => localStorage.getItem(MUTE_STORAGE_KEY) === '1')
   const mutedRef = useRef(muted)
+  const ttsUrl = useRef<Map<string, string>>(new Map())
   const ttsAudio = useRef<Map<string, HTMLAudioElement>>(new Map())
   useEffect(() => {
-    const map = new Map<string, HTMLAudioElement>()
+    const urls = new Map<string, string>()
     for (const c of cards) {
       const url = c.translation.ttsFile ?? c.ttsFile
-      if (!url) continue
-      const a = new Audio(url)
-      a.preload = 'auto'
-      map.set(c.id, a)
+      if (url) urls.set(c.id, url)
     }
-    ttsAudio.current = map
+    ttsUrl.current = urls
+    const audios = ttsAudio.current
     return () => {
-      map.forEach(a => { a.pause(); a.src = '' })
-      map.clear()
+      audios.forEach(a => { a.pause(); a.src = '' })
+      audios.clear()
     }
   }, [cards])
 
@@ -200,10 +199,15 @@ export default function PotatoGame({ cards, onGameOver, onExit, devMode }: Potat
 
   function playWordSound(cardId: string) {
     if (mutedRef.current) return
-    const a = ttsAudio.current.get(cardId)
-    if (!a) return // no TTS for this card: stay silent
+    let a = ttsAudio.current.get(cardId)
+    if (!a) {
+      const url = ttsUrl.current.get(cardId)
+      if (!url) return // no TTS for this card: stay silent
+      a = new Audio(url)
+      ttsAudio.current.set(cardId, a)
+    }
     a.currentTime = 0
-    a.play().catch(() => { /* blocked or failed to load: stay silent */ })
+    a.play().catch(err => console.warn('TTS playback failed:', err))
   }
 
   const model = useRef<GameModel>({
@@ -450,15 +454,16 @@ export default function PotatoGame({ cards, onGameOver, onExit, devMode }: Potat
           <span className="hud-value">{secs}</span>
         </div>
         {devMode && <span className="dev-badge">DEV</span>}
-        <button
-          className="btn btn-exit"
-          onClick={toggleMute}
-          aria-label={muted ? 'Unmute word sounds' : 'Mute word sounds'}
-        >
-          {muted ? '🔇' : '🔊'}
-        </button>
         <button className="btn btn-exit" onClick={onExit}>✕</button>
       </div>
+
+      <button
+        className="btn btn-sound"
+        onClick={toggleMute}
+        aria-label={muted ? 'Unmute word sounds' : 'Mute word sounds'}
+      >
+        {muted ? '🔇' : '🔊'}
+      </button>
 
       <div className="playfield-wrap">
         <svg

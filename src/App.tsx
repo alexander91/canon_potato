@@ -29,14 +29,10 @@ function toOptionalNumber(value: unknown): number | undefined {
   return undefined
 }
 
-/** Resolve a TTS file reference to an absolute URL (API may return a relative path). */
-function resolveTtsUrl(ttsFile: unknown, apiBase: string): string | undefined {
-  if (typeof ttsFile !== 'string' || !ttsFile) return undefined
-  if (/^https?:\/\//i.test(ttsFile)) return ttsFile
-  return `${apiBase.replace(/\/$/, '')}/${ttsFile.replace(/^\//, '')}`
-}
+const TTS_BUCKET = 'words_tts_collection'
+const TTS_URL_TTL_S = 3600
 
-function rowToCard(row: Record<string, unknown>, apiBase: string): Card {
+function rowToCard(row: Record<string, unknown>): Card {
   const wordId = toOptionalNumber(row['word_id'])
   const partOfSpeech = typeof row['part_of_speech'] === 'string' && row['part_of_speech']
     ? (row['part_of_speech'] as string)
@@ -54,7 +50,7 @@ function rowToCard(row: Record<string, unknown>, apiBase: string): Card {
       englishWord: { id: crypto.randomUUID(), value: nfc(row['source_word'] as string), language: row['source_lang'] as Card['languagePair'][0] },
       foreignWord: { id: crypto.randomUUID(), value: nfc(row['target_word'] as string), language: row['target_lang'] as Card['languagePair'][0] },
       transliteration: (row['transliteration'] as string | null) ? nfc(row['transliteration'] as string) : undefined,
-      ttsFile: resolveTtsUrl(row['ttsfile'], apiBase),
+      ttsFile: (row['ttsfile'] as string) || undefined,
     },
     imageUrlSmall: row['img_url_small'] as string,
     imageUrlLarge: row['img_url_large'] as string,
@@ -153,7 +149,7 @@ function App() {
         return
       }
       const rawCards = await cardsRes.json()
-      const all: Card[] = Array.isArray(rawCards) ? rawCards.map(row => rowToCard(row, init.apiBase)) : []
+      const all: Card[] = Array.isArray(rawCards) ? rawCards.map(rowToCard) : []
       const resolvedIds = init.cards?.length ? new Set(init.cards.map(c => c.cardId)) : null
       const eligible = resolvedIds ? all.filter(c => resolvedIds.has(c.id)) : all
 
@@ -163,11 +159,43 @@ function App() {
           : `You need at least ${MIN_CARDS} cards to play this game`)
         return
       }
+      await resolveTtsUrls(eligible)
       setCards(eligible)
     } catch (err) {
       setError('Failed to initialize game: ' + (err as Error).message)
     } finally {
       setLoading(false)
+    }
+  }
+
+  // TTS files live in a private Supabase storage bucket as paths like
+  // "tts/hy/apple.mp3" — a plain <audio src> can't fetch them. Swap each path
+  // for a signed URL the game can play directly. Cards whose file can't be
+  // signed (no client, error, pending TTS) end up with no ttsFile → silent.
+  async function resolveTtsUrls(eligible: Card[]) {
+    const client = supabaseRef.current
+    const paths = [...new Set(
+      eligible.map(c => c.translation.ttsFile).filter((p): p is string => !!p && !/^https?:\/\//i.test(p))
+    )]
+    const urlByPath = new Map<string, string>()
+    if (client && paths.length) {
+      try {
+        const { data, error: signErr } = await client.storage
+          .from(TTS_BUCKET)
+          .createSignedUrls(paths, TTS_URL_TTL_S)
+        if (signErr) throw signErr
+        for (const item of data ?? []) {
+          if (item.path && item.signedUrl && !item.error) urlByPath.set(item.path, item.signedUrl)
+        }
+      } catch (err) {
+        console.warn('Failed to sign TTS URLs, game will be silent:', err)
+      }
+    }
+    for (const c of eligible) {
+      const tts = c.translation.ttsFile
+      if (tts && !/^https?:\/\//i.test(tts)) {
+        c.translation.ttsFile = urlByPath.get(tts)
+      }
     }
   }
 
