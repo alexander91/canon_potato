@@ -197,6 +197,11 @@ function App() {
         c.translation.ttsFile = urlByPath.get(tts)
       }
     }
+    const withAudio = eligible.filter(c => c.translation.ttsFile).length
+    console.log(
+      `[canon-potato] TTS: ${withAudio}/${eligible.length} cards playable ` +
+      `(paths in deck: ${paths.length}, signed: ${urlByPath.size}, supabase client: ${client ? 'yes' : 'NO'})`
+    )
   }
 
   // Persist per-card hit counts back to Translator at game over (fire-and-forget).
