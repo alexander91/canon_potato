@@ -37,6 +37,9 @@ const POTATO_R = 18
 const ROUND_TIME = 12         // seconds per word
 const RELOAD_TIME = 3.3       // seconds to reload after every shot
 const MAX_OVALS = 5
+// Long enough to cross the clipped SVG even when portrait layout shifts the
+// cannon far below the 1000×600 playfield.
+const AIM_GUIDE_LEN = Math.hypot(VIEW_W, VIEW_H) * 2
 
 type Phase = 'ready' | 'playing' | 'over'
 
@@ -569,8 +572,8 @@ export default function PotatoGame({ cards, onGameOver, onExit, loadTtsFile, dev
             <line
               x1={PIVOT_X}
               y1={PIVOT_Y}
-              x2={PIVOT_X + (BARREL_LEN + 600) * Math.sin((m.angleDeg * Math.PI) / 180)}
-              y2={PIVOT_Y - (BARREL_LEN + 600) * Math.cos((m.angleDeg * Math.PI) / 180)}
+              x2={PIVOT_X + AIM_GUIDE_LEN * Math.sin((m.angleDeg * Math.PI) / 180)}
+              y2={PIVOT_Y - AIM_GUIDE_LEN * Math.cos((m.angleDeg * Math.PI) / 180)}
               className="aim-line"
               transform={`translate(0 ${gunDy})`}
             />
