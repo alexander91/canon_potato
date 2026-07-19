@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { Card } from './types'
 import {
@@ -30,7 +30,6 @@ function toOptionalNumber(value: unknown): number | undefined {
 }
 
 const TTS_BUCKET = 'words_tts_collection'
-const TTS_URL_TTL_S = 3600
 
 function rowToCard(row: Record<string, unknown>): Card {
   const wordId = toOptionalNumber(row['word_id'])
@@ -159,7 +158,6 @@ function App() {
           : `You need at least ${MIN_CARDS} cards to play this game`)
         return
       }
-      await resolveTtsUrls(eligible)
       setCards(eligible)
     } catch (err) {
       setError('Failed to initialize game: ' + (err as Error).message)
@@ -168,41 +166,23 @@ function App() {
     }
   }
 
-  // TTS files live in a private Supabase storage bucket as paths like
-  // "tts/hy/apple.mp3" — a plain <audio src> can't fetch them. Swap each path
-  // for a signed URL the game can play directly. Cards whose file can't be
-  // signed (no client, error, pending TTS) end up with no ttsFile → silent.
-  async function resolveTtsUrls(eligible: Card[]) {
+  // The cards API returns private Supabase Storage paths, not playable URLs.
+  // Download on demand with the authenticated client; PotatoGame turns the
+  // returned blob into a short-lived object URL and caches it per card.
+  const loadTtsFile = useCallback(async (path: string): Promise<Blob | null> => {
     const client = supabaseRef.current
-    const paths = [...new Set(
-      eligible.map(c => c.translation.ttsFile).filter((p): p is string => !!p && !/^https?:\/\//i.test(p))
-    )]
-    const urlByPath = new Map<string, string>()
-    if (client && paths.length) {
-      try {
-        const { data, error: signErr } = await client.storage
-          .from(TTS_BUCKET)
-          .createSignedUrls(paths, TTS_URL_TTL_S)
-        if (signErr) throw signErr
-        for (const item of data ?? []) {
-          if (item.path && item.signedUrl && !item.error) urlByPath.set(item.path, item.signedUrl)
-        }
-      } catch (err) {
-        console.warn('Failed to sign TTS URLs, game will be silent:', err)
-      }
+    if (!client) return null
+    try {
+      const { data, error: downloadError } = await client.storage
+        .from(TTS_BUCKET)
+        .download(path)
+      if (downloadError) throw downloadError
+      return data
+    } catch (err) {
+      console.warn('TTS download failed:', err)
+      return null
     }
-    for (const c of eligible) {
-      const tts = c.translation.ttsFile
-      if (tts && !/^https?:\/\//i.test(tts)) {
-        c.translation.ttsFile = urlByPath.get(tts)
-      }
-    }
-    const withAudio = eligible.filter(c => c.translation.ttsFile).length
-    console.log(
-      `[canon-potato] TTS: ${withAudio}/${eligible.length} cards playable ` +
-      `(paths in deck: ${paths.length}, signed: ${urlByPath.size}, supabase client: ${client ? 'yes' : 'NO'})`
-    )
-  }
+  }, [])
 
   // Persist per-card hit counts back to Translator at game over (fire-and-forget).
   async function saveScores(scores: CardScore[]) {
@@ -250,7 +230,15 @@ function App() {
     )
   }
 
-  return <PotatoGame cards={cards} onGameOver={saveScores} onExit={handleBack} devMode={devMode} />
+  return (
+    <PotatoGame
+      cards={cards}
+      onGameOver={saveScores}
+      onExit={handleBack}
+      loadTtsFile={loadTtsFile}
+      devMode={devMode}
+    />
+  )
 }
 
 export default App

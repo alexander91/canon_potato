@@ -10,6 +10,7 @@ interface PotatoGameProps {
   cards: Card[]
   onGameOver: (scores: CardScore[]) => void
   onExit: () => void
+  loadTtsFile?: (path: string) => Promise<Blob | null>
   devMode?: boolean
 }
 
@@ -129,7 +130,7 @@ function barrelTip(angleDeg: number, pivotY = PIVOT_Y): { x: number; y: number }
   }
 }
 
-export default function PotatoGame({ cards, onGameOver, onExit, devMode }: PotatoGameProps) {
+export default function PotatoGame({ cards, onGameOver, onExit, loadTtsFile, devMode }: PotatoGameProps) {
   const [, forceRender] = useState(0)
   const tick = useCallback(() => forceRender(v => (v + 1) & 0xffff), [])
 
@@ -172,42 +173,91 @@ export default function PotatoGame({ cards, onGameOver, onExit, devMode }: Potat
   // Word pronunciation (TTS) on correct hit. Cards without ttsFile stay silent.
   const [muted, setMuted] = useState(() => localStorage.getItem(MUTE_STORAGE_KEY) === '1')
   const mutedRef = useRef(muted)
-  const ttsUrl = useRef<Map<string, string>>(new Map())
+  const ttsSource = useRef<Map<string, string>>(new Map())
   const ttsAudio = useRef<Map<string, HTMLAudioElement>>(new Map())
+  const ttsLoading = useRef<Map<string, Promise<HTMLAudioElement | null>>>(new Map())
+  const ttsObjectUrls = useRef<Set<string>>(new Set())
+  const ttsGeneration = useRef(0)
   useEffect(() => {
-    const urls = new Map<string, string>()
+    const sources = new Map<string, string>()
     for (const c of cards) {
-      const url = c.translation.ttsFile ?? c.ttsFile
-      if (url) urls.set(c.id, url)
+      const source = c.translation.ttsFile ?? c.ttsFile
+      if (source) sources.set(c.id, source)
     }
-    ttsUrl.current = urls
+    ttsSource.current = sources
+    const generation = ++ttsGeneration.current
     const audios = ttsAudio.current
+    const loading = ttsLoading.current
+    const objectUrls = ttsObjectUrls.current
     return () => {
+      if (ttsGeneration.current === generation) ttsGeneration.current += 1
       audios.forEach(a => { a.pause(); a.src = '' })
       audios.clear()
+      loading.clear()
+      objectUrls.forEach(url => URL.revokeObjectURL(url))
+      objectUrls.clear()
     }
   }, [cards])
+
+  const ensureWordAudio = useCallback(async (cardId: string): Promise<HTMLAudioElement | null> => {
+    const cached = ttsAudio.current.get(cardId)
+    if (cached) return cached
+
+    const pending = ttsLoading.current.get(cardId)
+    if (pending) return pending
+
+    const source = ttsSource.current.get(cardId)
+    if (!source) return null
+
+    const generation = ttsGeneration.current
+    const request = (async () => {
+      try {
+        let url = source
+        if (!/^https?:\/\//i.test(source)) {
+          if (!loadTtsFile) return null
+          const blob = await loadTtsFile(source)
+          if (!blob || ttsGeneration.current !== generation) return null
+          url = URL.createObjectURL(blob)
+          ttsObjectUrls.current.add(url)
+        }
+
+        if (ttsGeneration.current !== generation) return null
+        const audio = new Audio(url)
+        audio.preload = 'auto'
+        audio.load()
+        ttsAudio.current.set(cardId, audio)
+        return audio
+      } catch (err) {
+        console.warn('TTS preload failed:', err)
+        return null
+      }
+    })()
+    ttsLoading.current.set(cardId, request)
+    void request.finally(() => {
+      if (ttsLoading.current.get(cardId) === request) ttsLoading.current.delete(cardId)
+    })
+    return request
+  }, [loadTtsFile])
 
   function toggleMute() {
     setMuted(prev => {
       const next = !prev
       mutedRef.current = next
       localStorage.setItem(MUTE_STORAGE_KEY, next ? '1' : '0')
+      if (!next && model.current.recentTargetId) {
+        void ensureWordAudio(model.current.recentTargetId)
+      }
       return next
     })
   }
 
   function playWordSound(cardId: string) {
     if (mutedRef.current) return
-    let a = ttsAudio.current.get(cardId)
-    if (!a) {
-      const url = ttsUrl.current.get(cardId)
-      if (!url) return // no TTS for this card: stay silent
-      a = new Audio(url)
-      ttsAudio.current.set(cardId, a)
-    }
-    a.currentTime = 0
-    a.play().catch(err => console.warn('TTS playback failed:', err))
+    void ensureWordAudio(cardId).then(audio => {
+      if (!audio || mutedRef.current) return
+      audio.currentTime = 0
+      audio.play().catch(err => console.warn('TTS playback failed:', err))
+    })
   }
 
   const model = useRef<GameModel>({
@@ -235,7 +285,8 @@ export default function PotatoGame({ cards, onGameOver, onExit, devMode }: Potat
     m.recentTargetId = r.targetId
     m.projectile = null
     m.timeLeft = ROUND_TIME
-  }, [cards])
+    if (!mutedRef.current) void ensureWordAudio(r.targetId)
+  }, [cards, ensureWordAudio])
 
   const fire = useCallback(() => {
     const m = model.current
