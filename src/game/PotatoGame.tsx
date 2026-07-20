@@ -181,6 +181,7 @@ export default function PotatoGame({ cards, onGameOver, onExit, loadTtsFile, dev
   const ttsLoading = useRef<Map<string, Promise<HTMLAudioElement | null>>>(new Map())
   const ttsObjectUrls = useRef<Set<string>>(new Set())
   const ttsGeneration = useRef(0)
+  const queuedRound = useRef<ReturnType<typeof buildRound> | null>(null)
   useEffect(() => {
     const sources = new Map<string, string>()
     for (const c of cards) {
@@ -247,8 +248,11 @@ export default function PotatoGame({ cards, onGameOver, onExit, loadTtsFile, dev
       const next = !prev
       mutedRef.current = next
       localStorage.setItem(MUTE_STORAGE_KEY, next ? '1' : '0')
-      if (!next && model.current.recentTargetId) {
-        void ensureWordAudio(model.current.recentTargetId)
+      if (!next) {
+        const currentId = model.current.recentTargetId
+        const queuedId = queuedRound.current?.targetId
+        if (currentId) void ensureWordAudio(currentId)
+        if (queuedId && queuedId !== currentId) void ensureWordAudio(queuedId)
       }
       return next
     })
@@ -279,16 +283,32 @@ export default function PotatoGame({ cards, onGameOver, onExit, loadTtsFile, dev
     recentTargetId: null,
   })
 
+  // Prepare the opening word while the instructions are visible. Afterwards,
+  // each active round keeps the following word warm so a correct hit can play
+  // from the in-memory audio cache instead of waiting on Supabase.
+  useEffect(() => {
+    const firstRound = buildRound(cards, null)
+    queuedRound.current = firstRound
+    if (!mutedRef.current) void ensureWordAudio(firstRound.targetId)
+    return () => { queuedRound.current = null }
+  }, [cards, ensureWordAudio])
+
   const newRound = useCallback(() => {
     const m = model.current
-    const r = buildRound(cards, m.recentTargetId)
+    const r = queuedRound.current ?? buildRound(cards, m.recentTargetId)
+    queuedRound.current = null
     m.ovals = r.ovals
     m.english = r.english
     m.pos = r.pos
     m.recentTargetId = r.targetId
     m.projectile = null
     m.timeLeft = ROUND_TIME
-    if (!mutedRef.current) void ensureWordAudio(r.targetId)
+    const nextRound = buildRound(cards, r.targetId)
+    queuedRound.current = nextRound
+    if (!mutedRef.current) {
+      void ensureWordAudio(r.targetId)
+      void ensureWordAudio(nextRound.targetId)
+    }
   }, [cards, ensureWordAudio])
 
   const fire = useCallback(() => {
