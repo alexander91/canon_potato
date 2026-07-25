@@ -375,6 +375,44 @@
   color: #ffb24a;
 }
 
+.missed-word {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 18px 0 6px;
+  padding: 16px 20px;
+  background: rgba(10, 16, 32, 0.55);
+  border: 1px solid rgba(125, 160, 255, 0.3);
+  border-radius: 14px;
+}
+
+.missed-word-label {
+  color: #8ea1cc;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+}
+
+.missed-word-pair {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.missed-word-divider {
+  color: #8ea1cc;
+  font-size: 18px;
+}
+
+.missed-word-learned {
+  color: #ffb24a;
+}
+
 @keyframes blink {
   0% { opacity: 1; }
   100% { opacity: 0.35; }
@@ -384,6 +422,14 @@
 @media (max-width: 640px) {
   .target-en { font-size: 28px; }
   .hud-value { font-size: 22px; }
+  .missed-word-pair {
+    flex-direction: column;
+    gap: 4px;
+    font-size: 22px;
+  }
+  .missed-word-divider {
+    transform: rotate(90deg);
+  }
 }
 
 /* Vertical (portrait) layout: English word sits on top, clear of the HUD. */

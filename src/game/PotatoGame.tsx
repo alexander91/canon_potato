@@ -514,6 +514,7 @@ export default function PotatoGame({ cards, onGameOver, onExit, loadTtsFile, dev
   const m = model.current
   const secs = Math.ceil(m.timeLeft)
   const lowTime = m.timeLeft <= 5
+  const missedLearnedWord = m.ovals.find(o => o.correct)?.word
 
   return (
     <div className="screen game-screen">
@@ -696,6 +697,16 @@ export default function PotatoGame({ cards, onGameOver, onExit, loadTtsFile, dev
             <div className="panel">
               <h1>Game Over</h1>
               <p className="final-score">Score: <b>{m.score}</b></p>
+              {missedLearnedWord && (
+                <div className="missed-word" aria-label="Word missed">
+                  <span className="missed-word-label">The word was</span>
+                  <span className="missed-word-pair">
+                    <span className="missed-word-english">{m.english}</span>
+                    <span className="missed-word-divider" aria-hidden="true">→</span>
+                    <span className="missed-word-learned">{missedLearnedWord}</span>
+                  </span>
+                </div>
+              )}
               <div className="game-actions">
                 <button className="btn btn-primary" onClick={restart}>Play Again</button>
                 <button className="btn btn-secondary" onClick={onExit}>Back to Translator</button>
