@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { Card } from './types'
 import {
@@ -28,6 +28,8 @@ function toOptionalNumber(value: unknown): number | undefined {
   }
   return undefined
 }
+
+const TTS_BUCKET = 'words_tts_collection'
 
 function rowToCard(row: Record<string, unknown>): Card {
   const wordId = toOptionalNumber(row['word_id'])
@@ -164,6 +166,24 @@ function App() {
     }
   }
 
+  // The cards API returns private Supabase Storage paths, not playable URLs.
+  // Download on demand with the authenticated client; PotatoGame turns the
+  // returned blob into a short-lived object URL and caches it per card.
+  const loadTtsFile = useCallback(async (path: string): Promise<Blob | null> => {
+    const client = supabaseRef.current
+    if (!client) return null
+    try {
+      const { data, error: downloadError } = await client.storage
+        .from(TTS_BUCKET)
+        .download(path)
+      if (downloadError) throw downloadError
+      return data
+    } catch (err) {
+      console.warn('TTS download failed:', err)
+      return null
+    }
+  }, [])
+
   // Persist per-card hit counts back to Translator at game over (fire-and-forget).
   async function saveScores(scores: CardScore[]) {
     const updates = scores.filter(s => s.score > 0)
@@ -210,7 +230,15 @@ function App() {
     )
   }
 
-  return <PotatoGame cards={cards} onGameOver={saveScores} onExit={handleBack} devMode={devMode} />
+  return (
+    <PotatoGame
+      cards={cards}
+      onGameOver={saveScores}
+      onExit={handleBack}
+      loadTtsFile={loadTtsFile}
+      devMode={devMode}
+    />
+  )
 }
 
 export default App

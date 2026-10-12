@@ -10,6 +10,7 @@ interface PotatoGameProps {
   cards: Card[]
   onGameOver: (scores: CardScore[]) => void
   onExit: () => void
+  loadTtsFile?: (path: string) => Promise<Blob | null>
   devMode?: boolean
 }
 
@@ -36,8 +37,13 @@ const POTATO_R = 18
 const ROUND_TIME = 12         // seconds per word
 const RELOAD_TIME = 3.3       // seconds to reload after every shot
 const MAX_OVALS = 5
+// Long enough to cross the clipped SVG even when portrait layout shifts the
+// cannon far below the 1000×600 playfield.
+const AIM_GUIDE_LEN = Math.hypot(VIEW_W, VIEW_H) * 2
 
 type Phase = 'ready' | 'playing' | 'over'
+
+const MUTE_STORAGE_KEY = 'canonPotatoMuted'
 
 interface Oval {
   cardId: string
@@ -127,7 +133,7 @@ function barrelTip(angleDeg: number, pivotY = PIVOT_Y): { x: number; y: number }
   }
 }
 
-export default function PotatoGame({ cards, onGameOver, onExit, devMode }: PotatoGameProps) {
+export default function PotatoGame({ cards, onGameOver, onExit, loadTtsFile, devMode }: PotatoGameProps) {
   const [, forceRender] = useState(0)
   const tick = useCallback(() => forceRender(v => (v + 1) & 0xffff), [])
 
@@ -167,6 +173,100 @@ export default function PotatoGame({ cards, onGameOver, onExit, devMode }: Potat
   const lastTs = useRef<number | null>(null)
   const reportedOver = useRef(false)
 
+  // Word pronunciation (TTS) on correct hit. Cards without ttsFile stay silent.
+  const [muted, setMuted] = useState(() => localStorage.getItem(MUTE_STORAGE_KEY) === '1')
+  const mutedRef = useRef(muted)
+  const ttsSource = useRef<Map<string, string>>(new Map())
+  const ttsAudio = useRef<Map<string, HTMLAudioElement>>(new Map())
+  const ttsLoading = useRef<Map<string, Promise<HTMLAudioElement | null>>>(new Map())
+  const ttsObjectUrls = useRef<Set<string>>(new Set())
+  const ttsGeneration = useRef(0)
+  const queuedRound = useRef<ReturnType<typeof buildRound> | null>(null)
+  useEffect(() => {
+    const sources = new Map<string, string>()
+    for (const c of cards) {
+      const source = c.translation.ttsFile ?? c.ttsFile
+      if (source) sources.set(c.id, source)
+    }
+    ttsSource.current = sources
+    const generation = ++ttsGeneration.current
+    const audios = ttsAudio.current
+    const loading = ttsLoading.current
+    const objectUrls = ttsObjectUrls.current
+    return () => {
+      if (ttsGeneration.current === generation) ttsGeneration.current += 1
+      audios.forEach(a => { a.pause(); a.src = '' })
+      audios.clear()
+      loading.clear()
+      objectUrls.forEach(url => URL.revokeObjectURL(url))
+      objectUrls.clear()
+    }
+  }, [cards])
+
+  const ensureWordAudio = useCallback(async (cardId: string): Promise<HTMLAudioElement | null> => {
+    const cached = ttsAudio.current.get(cardId)
+    if (cached) return cached
+
+    const pending = ttsLoading.current.get(cardId)
+    if (pending) return pending
+
+    const source = ttsSource.current.get(cardId)
+    if (!source) return null
+
+    const generation = ttsGeneration.current
+    const request = (async () => {
+      try {
+        let url = source
+        if (!/^https?:\/\//i.test(source)) {
+          if (!loadTtsFile) return null
+          const blob = await loadTtsFile(source)
+          if (!blob || ttsGeneration.current !== generation) return null
+          url = URL.createObjectURL(blob)
+          ttsObjectUrls.current.add(url)
+        }
+
+        if (ttsGeneration.current !== generation) return null
+        const audio = new Audio(url)
+        audio.preload = 'auto'
+        audio.load()
+        ttsAudio.current.set(cardId, audio)
+        return audio
+      } catch (err) {
+        console.warn('TTS preload failed:', err)
+        return null
+      }
+    })()
+    ttsLoading.current.set(cardId, request)
+    void request.finally(() => {
+      if (ttsLoading.current.get(cardId) === request) ttsLoading.current.delete(cardId)
+    })
+    return request
+  }, [loadTtsFile])
+
+  function toggleMute() {
+    setMuted(prev => {
+      const next = !prev
+      mutedRef.current = next
+      localStorage.setItem(MUTE_STORAGE_KEY, next ? '1' : '0')
+      if (!next) {
+        const currentId = model.current.recentTargetId
+        const queuedId = queuedRound.current?.targetId
+        if (currentId) void ensureWordAudio(currentId)
+        if (queuedId && queuedId !== currentId) void ensureWordAudio(queuedId)
+      }
+      return next
+    })
+  }
+
+  function playWordSound(cardId: string) {
+    if (mutedRef.current) return
+    void ensureWordAudio(cardId).then(audio => {
+      if (!audio || mutedRef.current) return
+      audio.currentTime = 0
+      audio.play().catch(err => console.warn('TTS playback failed:', err))
+    })
+  }
+
   const model = useRef<GameModel>({
     phase: 'ready',
     angleDeg: 0,
@@ -183,16 +283,33 @@ export default function PotatoGame({ cards, onGameOver, onExit, devMode }: Potat
     recentTargetId: null,
   })
 
+  // Prepare the opening word while the instructions are visible. Afterwards,
+  // each active round keeps the following word warm so a correct hit can play
+  // from the in-memory audio cache instead of waiting on Supabase.
+  useEffect(() => {
+    const firstRound = buildRound(cards, null)
+    queuedRound.current = firstRound
+    if (!mutedRef.current) void ensureWordAudio(firstRound.targetId)
+    return () => { queuedRound.current = null }
+  }, [cards, ensureWordAudio])
+
   const newRound = useCallback(() => {
     const m = model.current
-    const r = buildRound(cards, m.recentTargetId)
+    const r = queuedRound.current ?? buildRound(cards, m.recentTargetId)
+    queuedRound.current = null
     m.ovals = r.ovals
     m.english = r.english
     m.pos = r.pos
     m.recentTargetId = r.targetId
     m.projectile = null
     m.timeLeft = ROUND_TIME
-  }, [cards])
+    const nextRound = buildRound(cards, r.targetId)
+    queuedRound.current = nextRound
+    if (!mutedRef.current) {
+      void ensureWordAudio(r.targetId)
+      void ensureWordAudio(nextRound.targetId)
+    }
+  }, [cards, ensureWordAudio])
 
   const fire = useCallback(() => {
     const m = model.current
@@ -272,6 +389,7 @@ export default function PotatoGame({ cards, onGameOver, onExit, devMode }: Potat
                 m.score += 1
                 m.scoreMap[o.cardId] = (m.scoreMap[o.cardId] || 0) + 1
                 m.flash = { x: o.x, y: o.y, t: 0.4 }
+                playWordSound(o.cardId)
                 newRound() // advance; reload (if any) continues into the new word
               } else {
                 m.projectile = null // wrong oval: shot wasted, keep playing
@@ -396,6 +514,7 @@ export default function PotatoGame({ cards, onGameOver, onExit, devMode }: Potat
   const m = model.current
   const secs = Math.ceil(m.timeLeft)
   const lowTime = m.timeLeft <= 5
+  const missedLearnedWord = m.ovals.find(o => o.correct)?.word
 
   return (
     <div className="screen game-screen">
@@ -412,6 +531,14 @@ export default function PotatoGame({ cards, onGameOver, onExit, devMode }: Potat
         {devMode && <span className="dev-badge">DEV</span>}
         <button className="btn btn-exit" onClick={onExit}>✕</button>
       </div>
+
+      <button
+        className="btn btn-sound"
+        onClick={toggleMute}
+        aria-label={muted ? 'Unmute word sounds' : 'Mute word sounds'}
+      >
+        {muted ? '🔇' : '🔊'}
+      </button>
 
       <div className="playfield-wrap">
         <svg
@@ -466,8 +593,8 @@ export default function PotatoGame({ cards, onGameOver, onExit, devMode }: Potat
             <line
               x1={PIVOT_X}
               y1={PIVOT_Y}
-              x2={PIVOT_X + (BARREL_LEN + 600) * Math.sin((m.angleDeg * Math.PI) / 180)}
-              y2={PIVOT_Y - (BARREL_LEN + 600) * Math.cos((m.angleDeg * Math.PI) / 180)}
+              x2={PIVOT_X + AIM_GUIDE_LEN * Math.sin((m.angleDeg * Math.PI) / 180)}
+              y2={PIVOT_Y - AIM_GUIDE_LEN * Math.cos((m.angleDeg * Math.PI) / 180)}
               className="aim-line"
               transform={`translate(0 ${gunDy})`}
             />
@@ -570,6 +697,16 @@ export default function PotatoGame({ cards, onGameOver, onExit, devMode }: Potat
             <div className="panel">
               <h1>Game Over</h1>
               <p className="final-score">Score: <b>{m.score}</b></p>
+              {missedLearnedWord && (
+                <div className="missed-word" aria-label="Word missed">
+                  <span className="missed-word-label">The word was</span>
+                  <span className="missed-word-pair">
+                    <span className="missed-word-english">{m.english}</span>
+                    <span className="missed-word-divider" aria-hidden="true">→</span>
+                    <span className="missed-word-learned">{missedLearnedWord}</span>
+                  </span>
+                </div>
+              )}
               <div className="game-actions">
                 <button className="btn btn-primary" onClick={restart}>Play Again</button>
                 <button className="btn btn-secondary" onClick={onExit}>Back to Translator</button>
