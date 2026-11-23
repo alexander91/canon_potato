@@ -528,7 +528,7 @@ export default function PotatoGame({ cards, onGameOver, onExit, loadTtsFile, dev
           <span className="hud-label">TIMER</span>
           <span className="hud-value">{secs}</span>
         </div>
-        {devMode && <span className="dev-badge">DEV</span>}
+        {import.meta.env.DEV && devMode && <span className="dev-badge">DEV</span>}
         <button className="btn btn-exit" onClick={onExit}>✕</button>
       </div>
 
